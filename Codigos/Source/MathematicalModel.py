@@ -21,7 +21,8 @@ class MathematicalModel(Problem):
                  callback : str = "None",
                  bounds: bool = True,
                  new_formulation: bool = False,
-                 time_limit : int = 1800
+                 time_limit : int = 1800,
+                 new_m : bool = False
                  ):
         """
         Initialize mathematical model with some default values
@@ -38,9 +39,10 @@ class MathematicalModel(Problem):
         self.output = output
         self.subtour = subtour.lower()
         self.initial_solution = initial_solution
-        self.callback = callback.lower()
+        self.callback = callback.lower() if isinstance(callback,str) else "custom"
         self.bounds = bounds
         self.time_limit = time_limit
+        self.new_m = new_m
         self.new_formulation = new_formulation
         self.callback_dict = {"cut_integer_separation":MathematicalModel.CUT_integer_separation,
                               "cut_naive_fractional_separation":MathematicalModel.CUT_naive_fractional_separation,
@@ -49,10 +51,12 @@ class MathematicalModel(Problem):
                               "dfj_naive_fractional_separation":MathematicalModel.DFJ_naive_fractional_separation,
                               "dfj_smarter_fractional_separation":MathematicalModel.DFJ_smarter_fractional_separation,
                               "subtourelim1":MathematicalModel.subtourelim1,
-                              "subtourelim2":MathematicalModel.subtourelim2}
-
-        print(f'running with: {self.size} {self.instance} {self.subtour} {self.initial_solution} {self.callback} {self.bounds} {self.new_formulation} {self.time_limit}')
-        self.compute_M()
+                              "subtourelim2":MathematicalModel.subtourelim2,
+                              #'integer_fractional_cut':MathematicalModel.integer_fractional_cut,
+                              'custom':callback}
+        if self.output:
+            print(f'running with: {self.size} {self.instance} {self.subtour} {self.initial_solution} {self.callback} {self.bounds} {self.new_formulation} {self.time_limit} {self.new_m}')
+        self.compute_new_M() if new_m else self.compute_M()
         self.jobs = self.cities.copy()
         self.jobs_arch = [(i,k) for i in self.cities for k in self.cities]
         self.heuristic_jobs = None
@@ -70,10 +74,20 @@ class MathematicalModel(Problem):
             for j in range(self.n):
                 if i!=j and self.TT[i][j]>max_t:
                     max_t = self.TT[i][j]
-                
                 if j!= 0 and self.JT[i][j]>max_tt:
                     max_tt = self.JT[i][j]
             self.M += max_t #+max_tt
+        self.M = np.full((len(self.cities), len(self.cities)), self.M)
+
+    def compute_new_M(self):
+        self.M = np.zeros((len(self.cities),len(self.cities)))
+        inital_value = self.fitness_functions([self.lkh_route[1:],self.NNJA(self.lkh_route[1:],self.JT)])[0]
+        for j in range(1,len(self.cities)):
+            self.M[0,j] = self.TT[0][j]
+        for i in range(len(self.cities)):
+            for j in range(len(self.cities)):
+                if i != j:
+                    self.M[i,j] = inital_value + self.TT[i][j]
 
     def create_base_model(self):
         """
@@ -114,11 +128,10 @@ class MathematicalModel(Problem):
         for i in self.cities[1:self.n]:
             self.modelo.addConstr(self.Cmax >= self.TS[i] + self.x[(i,0)]*self.TT[i][0] , name = f'Cmax_{i}_0')
         
-
         for i in self.cities: #16
             for j in self.cities[1:self.n]:
                 if i!=j:
-                    self.modelo.addConstr(self.TS[i] + self.TT[i][j] - (1-self.x[(i,j)])*self.M <= self.TS[j] , name = f'TS_{i}_{j}')
+                    self.modelo.addConstr(self.TS[i] + self.TT[i][j] - (1-self.x[(i,j)])*self.M[i][j] <= self.TS[j] , name = f'TS_{i}_{j}')
 
         
         self.modelo.Params.Threads = 1
@@ -130,7 +143,6 @@ class MathematicalModel(Problem):
         """
         Create the initial new formulation MILP, whithout any additional constraint.
         """
-        print("new_formulation")
         env = gp.Env(empty=True)
         env.setParam('OutputFlag', 1 if self.output else 0)
         env.start()
@@ -178,7 +190,7 @@ class MathematicalModel(Problem):
             LB = np.min(self.TT[i][np.nonzero(self.TT[i])])
             for k in self.cities:
                 if i != k:
-                    self.modelo.addConstr(self.t[(i,k)] <= self.M*self.x[(i,k)] , name = f't_{i}_{k}_UB')
+                    self.modelo.addConstr(self.t[(i,k)] <= self.M[i][k]*self.x[(i,k)] , name = f't_{i}_{k}_UB')
                     self.modelo.addConstr(self.t[(i,k)] >= LB*self.x[(i,k)] , name = f't_{i}_{k}_LB')
         
         self.modelo.Params.Threads = 1
@@ -206,7 +218,7 @@ class MathematicalModel(Problem):
                 for i,j in self.arch:
                     if i>0:
                         #self.M debería ser self.n
-                        self.modelo.addConstr(self.u[i] - self.u[j] + 1 <= self.M * (1 - self.x[(i,j)]) , f"MTZ({i},{j})")
+                        self.modelo.addConstr(self.u[i] - self.u[j] + 1 <= self.M[i][j] * (1 - self.x[(i,j)]) , f"MTZ({i},{j})")
             
             elif self.subtour == "dl":
                 for i in range(1,self.n):
@@ -228,6 +240,38 @@ class MathematicalModel(Problem):
 
         self.modelo.update()
 
+    @staticmethod
+    def integer_fractional_cut(modelo:gp.Model, donde):
+        initial = time.time()
+        n = modelo._n
+
+        if donde == GRB.Callback.MIPNODE  and ( modelo.cbGet(GRB.Callback.MIPNODE_STATUS) == GRB.OPTIMAL):
+            valoresX = modelo.cbGetNodeRel(modelo._xvars)
+            tour = [i for i in range(n+1)]
+            MathematicalModel.subtour_method(tour, valoresX,n)
+            if len(tour) < n:
+                modelo._callback_count +=1 
+                tour2 = [i for i in range(n) if i not in tour]
+                modelo.cbLazy(gp.quicksum(modelo._xvars[i, j] for i in tour for j in tour2) >= 1)
+                modelo.cbLazy(gp.quicksum(modelo._xvars[i, j] for i in tour for j in tour if i != j) <= len(tour)-1)
+            
+
+            # DG: nx.DiGraph = modelo._DG
+            # for i,j in DG.edges:
+            #     DG.edges[i,j]['capacity'] = valoresX[i,j]
+
+            # for t in range(1,n):
+            #     (cut_value, node_partition) = nx.minimum_cut( DG, _s=0, _t=t )
+            #     # print("cut_value =",cut_value)
+            #     if cut_value < 1 - modelo._epsilon:
+            #         modelo._callback_count +=1 
+            #         S = node_partition[0]  # 'left' side of the cut
+            #         T = node_partition[1]  # 'right' side of the cut
+            #         modelo.cbLazy( gp.quicksum( modelo._xvars[i,j] for i in S for j in T ) >= 1 )
+            #         return
+
+        modelo._callback_time += time.time()-initial
+    
     @staticmethod
     def CUT_integer_separation(m:gp.Model, where):
         initial = time.time()
@@ -612,8 +656,7 @@ class MathematicalModel(Problem):
         self.modelo.update()
 
     def optimize(self):
-        if self.callback == "none":
-
+        if self.callback in ("none",None) :
             self.modelo.optimize()
         elif self.callback in self.callback_dict.keys():
             self.modelo.Params.LazyConstraints = 1
@@ -628,7 +671,10 @@ class MathematicalModel(Problem):
             
             self.modelo._epsilon = 0.00001
             self.modelo._DG = nx.DiGraph(nx.complete_graph(self.n))
-            self.modelo.optimize(self.callback_dict[self.callback])
+            try:
+                self.modelo.optimize(self.callback_dict[self.callback])
+            except:
+                raise Exception("Callback error")
         else:
             raise Exception(f"Callback {self.callback} not found")
 

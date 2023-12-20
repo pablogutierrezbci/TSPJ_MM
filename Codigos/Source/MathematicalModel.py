@@ -191,11 +191,13 @@ class MathematicalModel(Problem):
             for k in self.cities:
                 if i != k:
                     self.modelo.addConstr(self.t[(i,k)] <= self.M[i][k]*self.x[(i,k)] , name = f't_{i}_{k}_UB')
-                    self.modelo.addConstr(self.t[(i,k)] >= LB*self.x[(i,k)] , name = f't_{i}_{k}_LB')
+                    self.modelo.addConstr(self.t[(i,k)] >= 0 , name = f't_{i}_{k}_LB')
         
         self.modelo.Params.Threads = 1
         self.modelo.Params.TimeLimit = self.time_limit
         self.modelo._callback_time = 0
+        self.modelo.setParam("Method",2) 
+        #0=primal simplex, 1=dual simplex, 2=barrier, 3=concurrent, 4=deterministic concurrent
         self.modelo.update()
 
     def add_subtour_constraint(self):
@@ -218,7 +220,7 @@ class MathematicalModel(Problem):
                 for i,j in self.arch:
                     if i>0:
                         #self.M debería ser self.n
-                        self.modelo.addConstr(self.u[i] - self.u[j] + 1 <= self.M[i][j] * (1 - self.x[(i,j)]) , f"MTZ({i},{j})")
+                        self.modelo.addConstr(self.u[i] - self.u[j] + 1 <= self.n * (1 - self.x[(i,j)]) , f"MTZ({i},{j})")
             
             elif self.subtour == "dl":
                 for i in range(1,self.n):
@@ -613,17 +615,12 @@ class MathematicalModel(Problem):
         
         elif hasattr(self,'t'):
             for i in self.cities:
+                LB = np.min(self.TT[i][np.nonzero(self.TT[i])])
                 for j in self.cities:
                     if i!=j:
                         self.modelo.addConstr(self.t[(i,j)]<=costo_inicial, name = f'bounds_t_{i}_{j}')
-
-            # for i in self.cities:
-            #     LB = np.min(self.TT[i][np.nonzero(self.TT[i])])
-            #     for j in self.cities:
-            #         if i!=j and i*j > 0:
-            #             self.modelo.addConstr(self.t[(i,j)]>=LB)
-            
-
+                        self.modelo.addConstr(self.t[(i,j)] >= LB*self.x[(i,j)] , name = f't_{i}_{j}_LB')
+                
         # Cota superior de solucion inicial (lkh+NNJ)
         self.modelo.addConstr(self.Cmax<=costo_inicial)
         self.modelo.update()

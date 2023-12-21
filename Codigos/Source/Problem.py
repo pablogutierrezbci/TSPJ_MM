@@ -112,3 +112,13 @@ class Problem:
             cmax = suma_ac[-1]
         return cmax,
 
+    def route_fitness(self,solution:List):
+        """
+        Get the route fitness of *solution*
+        """
+        fitness = self.TT[0][solution[0]]
+        for i in range(len(solution)-1):
+            fitness += self.TT[solution[i]][solution[i+1]]
+        fitness += self.TT[solution[-1]][0]
+        return fitness
+

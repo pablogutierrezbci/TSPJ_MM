@@ -603,12 +603,13 @@ class MathematicalModel(Problem):
         
         self.heuristic_jobs = self.NNJA(self.lkh_route[1:],self.JT)
         
-        costo_inicial = self.fitness_functions([self.lkh_route[1:],self.heuristic_jobs])[0]
+        initial_fitness = self.fitness_functions([self.lkh_route[1:],self.heuristic_jobs])[0]
+        route_fitness = self.route_fitness(self.lkh_route[1:])
         menor_arco_depot = min(self.TT[0][i] for i in range(1,self.n))
 
         if hasattr(self,'TS'):
             for i in self.cities:
-                self.modelo.addConstr(self.TS[i]<=costo_inicial , name = f'bounds1_TS_{i}')
+                self.modelo.addConstr(self.TS[i] <= route_fitness , name = f'bounds1_TS_{i}')
 
             for i in range(1,self.n):
                 self.modelo.addConstr(self.TS[i]>=menor_arco_depot , name = f'bounds2_TS_{i}') 
@@ -618,11 +619,12 @@ class MathematicalModel(Problem):
                 LB = np.min(self.TT[i][np.nonzero(self.TT[i])])
                 for j in self.cities:
                     if i!=j:
-                        self.modelo.addConstr(self.t[(i,j)]<=costo_inicial, name = f'bounds_t_{i}_{j}')
-                        self.modelo.addConstr(self.t[(i,j)] >= LB*self.x[(i,j)] , name = f't_{i}_{j}_LB')
+                        self.modelo.addConstr(self.t[(i,j)] <= route_fitness, name = f'bounds_t_{i}_{j}')
+                    if i!=j and i*j>0:
+                        self.modelo.addConstr(self.t[(i,j)] >= LB*self.x[(i,j)] , name = f'bouns_t_{i}_{j}_LB')
                 
         # Cota superior de solucion inicial (lkh+NNJ)
-        self.modelo.addConstr(self.Cmax<=costo_inicial)
+        self.modelo.addConstr(self.Cmax<=initial_fitness)
         self.modelo.update()
 
     def add_initial_solution(self):

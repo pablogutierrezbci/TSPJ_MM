@@ -129,12 +129,12 @@ instance_dict = {"tsplib":tsplib,
 argv = ["-p"              , "secuential",
         "-size"           , "tsplib",
         "-alg"            , "gurobi",
-        "-subtour"        , "dl",
+        "-subtour"        , "wc",
         "-initialsol"     , "True",
         "-callback"       , "subtourelim1",
         "-bounds"         , "True",
-        "-newformulation" , "False",
-        "-newm" , "False"]
+        "-newformulation" , "True",
+        "-newm"           , "False"]
 
 #argv = sys.argv[1:]
 set_parameters(argv)

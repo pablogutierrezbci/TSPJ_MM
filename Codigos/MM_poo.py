@@ -86,8 +86,8 @@ opts = [(argv[2*i],argv[2*i+1]) for i in range(int(len(argv)/2))]
 
 size = "tsplib"
 instance = "gr17"
-output = False
-subtour = "dl"
+output = True
+subtour = "wc"
 initial_sol = True
 callback =  'subtourelim1'
 bounds = True
